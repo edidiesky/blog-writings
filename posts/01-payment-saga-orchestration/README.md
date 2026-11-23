@@ -46,12 +46,14 @@ For the System to be able to implement the above 4 requirements for Saga under r
 
 Before we see how each of the requirements works, we need to look at the core actors that make up the system.
 
-1. Booking: The booking entity owns the reservation workflow and state transitions. So, it is the service that handles reserving a room for a user, John, exclusively.
-2. Payment: For the Payment entity, it creates the payment intent for the booking, verifies webhooks, implements idempotent retries, and guards state transitions
-3. Ledger: Everything concerning recording money movement in terms of debit and credit; this entity handles it.
-4. Orchestrator: This entity handles all multi-step business operations like calling the <mark>booking-service</mark> to handle booking reservation, it also calls other services like <mark>payment-service</mark>, and <mark>ledger-service</mark> to perform their own business operations. So if one of the previous steps fails, the previously executed steps will run compensating actions to reverse their business-level changes
-5. API Gateway
-6. Availability
+1. Booking: The booking entity owns the reservation workflow and state transitions. So, it is the service that handles reserving a room for a user, John, exclusively for a short time (10 minutes), confirms the booking after payment, and releases the hold if payment never completes. It owns the bookings table and the availability calendar.
+2. Payment: The payment entity creates the payment intent for the booking, talks to the payment providers (Stripe, Paystack or Flutterwave), verifies webhook signatures, stays idempotent under retries, and guards payment state transitions (pending, paid, cancelled, refunded). It is also responsible for issuing refunds when a compensating action asks for one.
+3. Ledger: The ledger entity records money movement as balanced debit and credit entries (double entry), and only for money that actually moved. When a payment is captured or refunded, the ledger is what lets us prove where the money went.
+4. Orchestrator: The orchestrator coordinates the multi-step business operation that spans services. Once John clicks "Pay Now", it creates the saga, calls the payment-service to create the intent, waits for the webhook, and then asks the booking-service to confirm. If a later step fails, it runs compensating actions for the steps that already completed, such as refunding the payment or releasing the hold. It stores its progress (current step, status, context) in its own database, so it can pause while waiting for a webhook and resume after a crash.
+5. API Gateway: The API Gateway is the simply just the only entry point for the guest and the payment providers. It basically handles rate limiting, authentication and request routing, and forwards requests to the Main API. Internal service-to-service endpoints are never exposed through it.
+6. Availability: Availability is really not a separate service. It is the inventory of rooms per room type and date (the availability_calendar table), and it belongs to the booking-service. Reserving a room decrements the count, and releasing or expiring a hold restores it, both in the same local transaction as the booking change. This is what stops two guests from reserving the last room
+7. Workers: Background isolated processes that simply just do the time-based and reliability work. The booking-expiration worker releases unpaid holds, the outbox worker publishes events written in the same transaction as the data change, and the sweeper reclaims sagas whose orchestrator crashed.
+8. Audit and Notification: The audit service records every action and state change, and the notification service tells John and the platform what happened (hold expired, payment confirmed, refund issued). Both are fed by events from the outbox rather than called directly.
 
 ## How does the system data operate?
 
