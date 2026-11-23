@@ -30,6 +30,4 @@ Each post lives in its own folder, so images and code stay next to the text.
 Feedback on architecture, accuracy and clarity is the most useful.
 
 ## Notes
-
-- This repo is private until posts are approved.
-- Diagrams use Mermaid where possible, so they render directly on GitHub.
+- Diagrams use Excalidraw
